@@ -4,8 +4,8 @@ import (
 	"log"      // Added for log.Fatal
 	"net"
 	"log/slog" // For structured logging
+	"fmt"
 )
-
 // defaultListenAdrr is used if ListenAddress is not specified.
 const defaultListenAdrr = ":3000" // Changed port slightly for common alternative, was :3333
 
@@ -21,6 +21,7 @@ type Server struct {
 	ln        net.Listener
 	addPeerCh chan *Peer
 	quitCh    chan struct{}
+	msgCh  chan[]byte
 }
 
 // NewServer creates and returns a new Server instance.
@@ -35,6 +36,7 @@ func NewServer(cfg Config) *Server {
 		peers:     make(map[*Peer]bool),
 		addPeerCh: make(chan *Peer),
 		quitCh:    make(chan struct{}), // Consistent with struct definition
+		msgCh: make(chan []byte),
 	}
 }
 
@@ -60,6 +62,8 @@ func (s *Server) Start() error {
 func (s *Server) loop() {
 	for {
 		select {
+		case rawMsg := <- s.msgCh:
+		fmt.Println(rawMsg)
 		case <-s.quitCh:
 			slog.Info("Server loop shutting down.")
 			// TODO: Gracefully disconnect peers if necessary
@@ -98,7 +102,7 @@ func (s *Server) acceptLoop() {
 
 // handleConn handles a new connection by creating a peer and starting its read loop.
 func (s *Server) handleConn(conn net.Conn) {
-	peer := NewPeer(conn) // Uses NewPeer from peer.go
+	peer := NewPeer(conn ,s.msgCh) // Uses NewPeer from peer.
 	s.addPeerCh <- peer   // Send the new peer to the main loop
 	slog.Info ("new peer  connected ","remoteAddr",conn.RemoteAddr())
 	// The readLoop will handle communication with this peer.
