@@ -4,44 +4,43 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log" // Still here for now, but ideally errors are returned
+	"log/slog" 
 
 	"github.com/tidwall/resp"
 )
 
-// 1. Rename types
+
 type CommandType int
 
 const (
-	CmdSet CommandType = iota
+	CmdUnknown CommandType = iota 
+	CmdSet
 	CmdGet
-	// ... other command types
+
 )
 
 type ParsedCommand struct {
-	Type CommandType
-	Key  string
-	Val  string // Only relevant for some commands like SET
-	Args []string // For more general commands
+	Type        CommandType
+	CommandName string 
+	Key         string
+	Val         string  
+	Args        []string 
 }
 
-// 2. Fix function signature, parameter, and return path
-func parseCommand(rawCommandData []byte) (*ParsedCommand, error) { // Changed parameter, return type
+func parseCommand(rawCommandData []byte) (*ParsedCommand, error) {
 	if len(rawCommandData) == 0 {
 		return nil, fmt.Errorf("empty command data")
 	}
-	rd := resp.NewReader(bytes.NewBuffer(rawCommandData)) // Use bytes.NewBuffer
+	rd := resp.NewReader(bytes.NewBuffer(rawCommandData))
 
-	// Expecting a single top-level RESP value representing the command array
 	v, _, err := rd.ReadValue()
 	if err != nil {
 		if err == io.EOF {
-			return nil, fmt.Errorf("incomplete command: %w", err) // EOF before a full command is an error
+			return nil, fmt.Errorf("incomplete command: %w", err)
 		}
-		return nil, fmt.Errorf("failed to read RESP value: %w", err) // 6. Return errors
+		return nil, fmt.Errorf("failed to read RESP value: %w", err)
 	}
 
-	// 5. Logic to actually build a command
 	if v.Type() != resp.Array {
 		return nil, fmt.Errorf("command must be a RESP array, got %s", v.Type())
 	}
@@ -52,16 +51,10 @@ func parseCommand(rawCommandData []byte) (*ParsedCommand, error) { // Changed pa
 	}
 
 	cmd := &ParsedCommand{}
-	commandName := arr[0].String() // Assuming first element is command name
+	cmd.CommandName = arr[0].String() 
 
-	fmt.Printf("Read Command Array (Type: %s):\n", v.Type())
-	for i, val := range arr {
-		fmt.Printf("  #%d Type: %s, Value: %s\n", i, val.Type(), val.String())
-	}
 
-	// Example: Simple SET command parsing
-	// You'd need more robust logic here for different commands
-	switch commandName {
+	switch cmd.CommandName { 
 	case "SET":
 		if len(arr) != 3 {
 			return nil, fmt.Errorf("SET command requires 2 arguments (key value), got %d", len(arr)-1)
@@ -76,23 +69,17 @@ func parseCommand(rawCommandData []byte) (*ParsedCommand, error) { // Changed pa
 		cmd.Type = CmdGet
 		cmd.Key = arr[1].String()
 	default:
-		return nil, fmt.Errorf("unknown command: %s", commandName)
+		slog.Warn("Unknown command encountered during parsing", "commandName", cmd.CommandName)
+		cmd.Type = CmdUnknown
 	}
-
-	// Check for trailing data after the first command, if this function should only parse one.
 	_, _, err = rd.ReadValue()
 	if err != io.EOF {
-		// If there's more data or an error other than EOF, it means there's unexpected trailing data
-		// or the input wasn't just a single command.
-		// This depends on whether your protocol expects one command per ReadValue call
-		// or a stream. For simplicity, assuming one command per call here.
-		if err != nil { // A real error reading further
-			log.Printf("Warning: Error checking for trailing data: %v (ignoring)", err) // Or handle as strict error
-		} else { // No error, but also not EOF means more data
-			log.Printf("Warning: Trailing data found after command (ignoring)")
+		if err != nil {
+			slog.Warn("Error checking for trailing data after command", "error", err)
+		} else {
+			slog.Warn("Trailing data found after command, indicates multiple commands in one read or malformed input.")
 		}
 	}
 
-
-	return cmd, nil // Return the constructed command and nil error
+	return cmd, nil
 }

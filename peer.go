@@ -1,37 +1,42 @@
 package main
 
 import (
-"net" // Imports the standard networking package
+	"io"
+	"net"
+	"log/slog"
 )
-// Defines the structure representing a connected client (peer).
+
 type Peer struct {
-	// conn net.conn // Typo: Should be net.Conn (uppercase 'C')
-	conn net.Conn   // Holds the network connection object for this specific peer.
-	msgCh chan []byte 
+	conn  net.Conn
+	msgCh chan Message 
 }
 
-// Constructor function for creating a new peer instance.
-// func newpeer(conn new.conn) *peer { // Typo: Should be func newPeer(conn net.Conn) *Peer {
-//                                   // And package should be 'net', not 'new'
-func NewPeer(conn net.Conn, msgCh chan []byte) *Peer { // Renamed to newPeer for convention, corrected type
-	return &Peer{ // Returns a pointer (*) to the newly created peer struct.
-		conn: conn, // Initializes the conn field with the provided network connection.
-		msgCh : msgCh,
-
+func NewPeer(conn net.Conn, msgCh chan Message) *Peer {
+	return &Peer{
+		conn:  conn,
+		msgCh: msgCh,
 	}
 }
 
-// Method associated with the peer struct to handle reading data from the client.
 func (p *Peer) readLoop() error {
-	buf := make([]byte ,1024)
+	buf := make([]byte, 2048) 
 	for {
-		n,err :=p.conn.Read(buf)
-		if err !=nil {
-		return err
+		n, err := p.conn.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				slog.Info("Client closed connection (EOF)", "remoteAddr", p.conn.RemoteAddr())
+			} else {
+				slog.Error("Error reading from peer connection", "err", err, "remoteAddr", p.conn.RemoteAddr())
+			}
+			return err
 		}
-		msgBuf := make([]byte , n)
-		copy(msgBuf ,buf[:n])
-		p.msgCh <- msgBuf
-	 
+
+		msgData := make([]byte, n)
+		copy(msgData, buf[:n])
+
+		p.msgCh <- Message{
+			conn: p.conn,
+			data: msgData, 
+		}
 	}
 }
