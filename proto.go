@@ -16,7 +16,7 @@ const (
 	CmdUnknown CommandType = iota 
 	CmdSet
 	CmdGet
-
+	CmdPing
 )
 
 type ParsedCommand struct {
@@ -68,6 +68,15 @@ func parseCommand(rawCommandData []byte) (*ParsedCommand, error) {
 		}
 		cmd.Type = CmdGet
 		cmd.Key = arr[1].String()
+
+case "PING":
+		if len(arr) > 2 { 
+			return nil, fmt.Errorf("wrong number of arguments for 'PING' command")
+		}
+		cmd.Type = CmdPing
+		if len(arr) == 2 { 
+			cmd.Args = []string{arr[1].String()}
+		}
 	default:
 		slog.Warn("Unknown command encountered during parsing", "commandName", cmd.CommandName)
 		cmd.Type = CmdUnknown

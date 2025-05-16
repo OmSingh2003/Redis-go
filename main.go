@@ -9,36 +9,38 @@ import (
 	"os" 
 	"sync"
 )
+// default port where my  redis server would wait for TCP conections from clients
+const defaultListenAdrr = ":5005" //Deafult listening Address (if client does not specify the port this will be used )
 
-const defaultListenAdrr = ":5005"
-
-type Config struct {
-	ListenAddress string
+type Config struct { // config structure
+	ListenAddress string  //store address and port 
 }
 
 type Message struct {
-	conn net.Conn 
-	data []byte   
+	conn net.Conn //network connection (client)
+	data []byte   //redis cmd 
 }
 
 type Server struct {
-	Config    
-	peers     map[*Peer]bool
-	ln        net.Listener
-	addPeerCh chan *Peer
-	delPeerCh chan *Peer 
-	quitCh    chan struct{}
-	msgCh     chan Message
+	Config    // inherits ListenAddress
+	peers     map[*Peer]bool //keep track of connected clients
+	ln        net.Listener //TCP listener returned by net.Listen
+	addPeerCh chan *Peer // Channel for adding peers
+	delPeerCh chan *Peer  // channel for deleting peers
+	quitCh    chan struct{} // signal to shutdown the server gracefully
+	msgCh     chan Message //channel were iconimg messages structs are sent.
 
-	mu   sync.RWMutex
-	data map[string][]byte
+// preventing race condtions.
+	mu   sync.RWMutex // prevents access to the in-memory data 
+	data map[string][]byte // key value store in (Redis in-memory database)
 }
 
-func NewServer(cfg Config) *Server {
-	if cfg.ListenAddress == "" {
+func NewServer(cfg Config) *Server { //intializing server instance
+	//if no ListenAddress is stated use the default one 
+	if cfg.ListenAddress == "" { 
 		cfg.ListenAddress = defaultListenAdrr
 	}
-
+//intializing 
 	return &Server{
 		Config:    cfg,
 		peers:     make(map[*Peer]bool),
@@ -49,23 +51,23 @@ func NewServer(cfg Config) *Server {
 		data:      make(map[string][]byte),
 	}
 }
-
+// Start the server ,Listens for incoming TCP connections, and runs connections/message handling loops.
 func (s *Server) Start() error {
-	ln, err := net.Listen("tcp", s.ListenAddress)
+	ln, err := net.Listen("tcp", s.ListenAddress) // Binds to the configured TCP address 
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", s.ListenAddress, err)
 	}
-	s.ln = ln
+	s.ln = ln // Saves the listener to the server struct 
 
-	go s.loop()
+	go s.loop() // gouroutine for the main server loop
 
-	slog.Info("Server running", "ListenAddress", s.ListenAddress)
+	slog.Info("Server running", "ListenAddress", s.ListenAddress) //log server startup message 
 	slog.Info("Accepting connections...")
-	go s.acceptLoop()
+	go s.acceptLoop() //accepts new client connections
 
 	return nil
 }
-
+// keep log output clean by removing \r and \n and avoid injection/newline 
 func SanitizeErrorMessage(msg string) string {
 	var sanitized bytes.Buffer
 	for _, r := range msg {
@@ -78,7 +80,7 @@ func SanitizeErrorMessage(msg string) string {
 
 
 func (s *Server) handleMessage(msg Message) {
-	parsedCmd, err := parseCommand(msg.data)
+	parsedCmd, err := parseCommand(msg.data) // Command Parsing 
 	if err != nil {
 		slog.Error("Failed to parse command", "err", err, "remoteAddr", msg.conn.RemoteAddr(), "rawData", string(msg.data))
 		errorResponse := []byte(fmt.Sprintf("-ERR %s\r\n", SanitizeErrorMessage(err.Error())))
@@ -92,7 +94,7 @@ func (s *Server) handleMessage(msg Message) {
 	slog.Debug("Executing command",
 		"commandName", parsedCmd.CommandName,
 		"key", parsedCmd.Key,
-
+		"argsCount", len(parsedCmd.Args),
 		"remoteAddr", msg.conn.RemoteAddr())
 
 	var response []byte
@@ -116,6 +118,18 @@ func (s *Server) handleMessage(msg Message) {
 		} else {
 			slog.Info("GET executed", "key", parsedCmd.Key, "valueFound", false, "remoteAddr", msg.conn.RemoteAddr())
 			response = []byte("$-1\r\n")
+		}
+
+	case CmdPing: 
+		if len(parsedCmd.Args) == 0 {
+			// PING (no arguments)
+			slog.Info("PING received (no args)", "remoteAddr", msg.conn.RemoteAddr())
+			response = []byte("+PONG\r\n")
+		} else if len(parsedCmd.Args) == 1 {
+			// PING <message>
+			message := parsedCmd.Args[0]
+			slog.Info("PING received (with message)", "message", message, "remoteAddr", msg.conn.RemoteAddr())
+			response = []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(message), message))
 		}
 	case CmdUnknown:
 		
@@ -212,7 +226,7 @@ func (s *Server) handleConn(conn net.Conn) {
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-slog.SetDefault(logger)
+  slog.SetDefault(logger)
 	slog.Info("Starting Redis-go server...")
 	server := NewServer(Config{})
 	if err := server.Start(); err != nil {
