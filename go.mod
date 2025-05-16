@@ -1,5 +1,5 @@
 module goredis
 
-go 1.24.2
+go 1.21
 
-require github.com/tidwall/resp v0.1.1 // indirect
+require github.com/tidwall/resp v0.1.1
