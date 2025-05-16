@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 // defaultListenAdrr is used if ListenAddress is not specified.
-const defaultListenAdrr = ":3000" // Changed port slightly for common alternative, was :3333
+const defaultListenAdrr = ":5005" // Changed port slightly for common alternative, was :3333
 
 // Config holds the server's configuration.
 type Config struct {
@@ -57,12 +57,19 @@ func (s *Server) Start() error {
 	slog.Info("Server started", "listening_on", s.ListenAddress)
 	return nil
 }
+func (s *Server) handleRawMessage(rawMsg []byte)  error{ 
+	fmt.Println(string(rawMsg))
+ return nil
+}
 
 // loop is the main event loop for the server, handling peer additions and quit signals.
 func (s *Server) loop() {
 	for {
 		select {
 		case rawMsg := <- s.msgCh:
+			if err:= s.handleRawMessage(rawMsg); err != nil {
+				slog.Error("raw message error" , "err" , err)
+			}
 		fmt.Println(rawMsg)
 		case <-s.quitCh:
 			slog.Info("Server loop shutting down.")
